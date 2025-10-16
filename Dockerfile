@@ -19,10 +19,10 @@ ENV LANG=C.UTF-8 \
 
 # Configure SSH for port 2222
 RUN mkdir -p /run/sshd /root/.ssh && \
-    echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICzL3NsXdtsrwCtKU3anh+qKynaC3wRDg3oeVaHybWk8 admin@chocox911' > /root/.ssh/authorized_keys && \
+    echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnFvGzBK9brNrUT4ebVxCAigp8dgeqjDr4eqAmefnOr choco' > /root/.ssh/authorized_keys && \
     chmod 700 /root/.ssh && \
     chmod 600 /root/.ssh/authorized_keys && \
-    echo 'Port 2222' >> /etc/ssh/sshd_config && \
+    echo 'Port 22' >> /etc/ssh/sshd_config && \
     echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo 'PidFile /run/sshd.pid' >> /etc/ssh/sshd_config && \
@@ -42,7 +42,7 @@ HTTP_PID=$!\n\
 /usr/sbin/sshd -D &\n\
 SSH_PID=$!\n\
 # Autossh reverse SSH tunnel with fixed alias\n\
-autossh -M 0 -o "StrictHostKeyChecking=no" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3" -R render:2222:localhost:2222 serveo.net &\n\
+autossh -M 0 -o "StrictHostKeyChecking=no" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3" -R alpine:22:localhost:22 serveo.net &\n\
 TUNNEL_PID=$!\n\
 cat <<EOF\n\
 ======================================\n\
@@ -50,9 +50,9 @@ SERVICES STARTED SUCCESSFULLY!\n\
 ======================================\n\
 HTTP Server: http://localhost:$PORT\n\
 SSH Connection Details:\n\
-- Connect directly to container IP:2222\n\
+- Connect directly to container IP:22\n\
 - OR via Serveo public tunnel:\n\
-  ssh -p 2222 -J serveo.net root@render\n\
+  ssh -J serveo.net root@alpine\n\
 - Username: root\n\
 - Password: choco\n\
 - SSH Key: Termius key installed\n\
@@ -76,7 +76,7 @@ while true; do\n\
     fi\n\
     if ! kill -0 $TUNNEL_PID 2>/dev/null; then\n\
         echo "Autossh tunnel died, restarting..."\n\
-        autossh -M 0 -o "StrictHostKeyChecking=no" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3" -R render:2222:localhost:2222 serveo.net &\n\
+        autossh -M 0 -o "StrictHostKeyChecking=no" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3" -R alpine:22:localhost:22 serveo.net &\n\
         TUNNEL_PID=$!\n\
     fi\n\
     sleep 30\n\
@@ -89,5 +89,5 @@ RUN mkdir -p /var/log
 HEALTHCHECK --interval=30s --timeout=10s \
     CMD curl -fs http://localhost:${PORT:-8000}/ || exit 1
 
-EXPOSE 8000 2222
+EXPOSE 8000 22
 CMD ["/start"]
