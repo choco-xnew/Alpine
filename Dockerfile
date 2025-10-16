@@ -1,44 +1,39 @@
-FROM debian:bookworm-slim
+# Use the specified Ubuntu 20.04 as the base image
+FROM ubuntu:20.04
 
-# Set environment variables to avoid interactive prompts
+# Set environment variables for non-interactive installation
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install all dependencies using apt
+# Note: Since the base image is now Ubuntu, all commands starting with 'apt-get' will work as expected.
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y --no-install-recommends \
-    sudo curl ffmpeg git nano screen openssh-server unzip wget autossh \
-    python3 python3-pip python3-venv \
+    sudo curl ffmpeg git nano screen openssh-client openssh-server unzip wget autossh \
+    python3 python3-pip \
     build-essential python3-dev libffi-dev libssl-dev zlib1g-dev libjpeg-dev \
-    libxml2-dev libxslt-dev \
-    tzdata \
-    # Install Node.js (from NodeSource)
-    ca-certificates gnupg && \
-    mkdir -p /etc/apt/keyrings && \
-    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
-    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_21.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && \
-    apt-get install -y nodejs && \
-    # Clean up
-    apt-get clean && \
+    file libxml2-dev libxslt1-dev \
+    tzdata locales ca-certificates gnupg procps net-tools && \
     rm -rf /var/lib/apt/lists/*
 
 # Set up locale
+RUN sed -i '/en_US.UTF-8/s/^# //g' /etc/locale.gen && \
+    locale-gen
 ENV LANG=C.UTF-8 \
-    LC_ALL=C.UTF-8 \
-    # Set Python virtual environment path
-    VENV_PATH="/opt/venv"
+    LC_ALL=C.UTF-8
 
-# Create and activate Python virtual environment
-RUN python3 -m venv $VENV_PATH
-ENV PATH="$VENV_PATH/bin:$PATH"
+# Install Node.js (LTS version from NodeSource)
+RUN curl -fsSL https://deb.nodesource.com/setup_lts.x | bash - && \
+    apt-get update && \
+    apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
 
-# Configure SSH for port 2222
+# Configure SSH
 RUN mkdir -p /run/sshd /root/.ssh && \
-    echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAICzL3NsXdtsrwCtKU3anh+qKynaC3wRDg3oeVaHybWk8 admin@chocox911' > /root/.ssh/authorized_keys && \
+    # The SSH key provided in your request: ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnFvGzBK9brNrUT4ebVxCAigp8dgeqjDr4eqAmefnOr choco
+    echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGnFvGzBK9brNrUT4ebVxCAigp8dgeqjDr4eqAmefnOr choco' > /root/.ssh/authorized_keys && \
     chmod 700 /root/.ssh && \
     chmod 600 /root/.ssh/authorized_keys && \
-    echo 'Port 2222' >> /etc/ssh/sshd_config && \
     echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config && \
     echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config && \
     echo 'PidFile /run/sshd.pid' >> /etc/ssh/sshd_config && \
@@ -49,38 +44,29 @@ RUN mkdir -p /run/sshd /root/.ssh && \
 RUN mkdir -p /var/www && \
     echo "<html><body><h1>Python HTTP Server Working!</h1><p>Direct SSH access available</p></body></html>" > /var/www/index.html
 
-# Copy requirements.txt if it exists (create a sample one if not)
-RUN echo "Flask==2.3.3\nrequests==2.31.0\npillow==10.0.0" > /tmp/requirements.txt
-
-# Install Python packages
-RUN pip install --upgrade pip && \
-    pip install -r /tmp/requirements.txt
-
-# Create startup script with autossh tunneling
-RUN printf '#!/bin/bash\n\
+# Create startup script with Serveo tunneling
+# The name 'alpine' in the SSH tunnel will be kept as per your original script's output/logic,
+# even though the base image is now Ubuntu.
+RUN printf '#!/bin/sh\n\
 export PORT=${PORT:-8000}\n\
 mkdir -p /root/.ssh\n\
-# Activate virtual environment\n\
-source ${VENV_PATH}/bin/activate\n\
 cd /var/www && python3 -m http.server $PORT --bind 0.0.0.0 &\n\
 HTTP_PID=$!\n\
 /usr/sbin/sshd -D &\n\
 SSH_PID=$!\n\
-# Autossh reverse SSH tunnel with fixed alias\n\
-autossh -M 0 -o "StrictHostKeyChecking=no" -o "ServerAliveInterval=30" -o "ServerAliveCountMax=3" -R docker:22:localhost:22 serveo.net &\n\
+# Serveo reverse SSH tunnel with fixed alias\n\
+# The "alpine" name is kept as it was in the original script's logic/output\n\
+ssh -o StrictHostKeyChecking=no -R alpine:22:localhost:22 serveo.net &\n\
 TUNNEL_PID=$!\n\
 cat <<EOF\n\
 ======================================\n\
 SERVICES STARTED SUCCESSFULLY!\n\
 ======================================\n\
 HTTP Server: http://localhost:$PORT\n\
-Python virtual environment: $VENV_PATH\n\
-Node.js version: $(node -v)\n\
-Python version: $(python3 --version)\n\
 SSH Connection Details:\n\
 - Connect directly to container IP:22\n\
 - OR via Serveo public tunnel:\n\
-  ssh -p 2222 -J serveo.net root@docker\n\
+  ssh -J serveo.net root@alpine\n\
 - Username: root\n\
 - Password: choco\n\
 - SSH Key: Termius key installed\n\
@@ -103,14 +89,8 @@ while true; do\n\
         SSH_PID=$!\n\
     fi\n\
     if ! kill -0 $TUNNEL_PID 2>/dev/null; then\n\
-        echo "Autossh tunnel died, restarting..."\n\
-        ssh -N \
-    -o "ExitOnForwardFailure=yes" \
-    -o "StrictHostKeyChecking=no" \
-    -o "ServerAliveInterval=30" \
-    -o "ServerAliveCountMax=3" \
-    -R docker:22:localhost:22 \
-    serveo.net &\n\
+        echo "Serveo tunnel died, restarting..."\n\
+        ssh -o StrictHostKeyChecking=no -R alpine:22:localhost:22 serveo.net &\n\
         TUNNEL_PID=$!\n\
     fi\n\
     sleep 30\n\
@@ -123,5 +103,8 @@ RUN mkdir -p /var/log
 HEALTHCHECK --interval=30s --timeout=10s \
     CMD curl -fs http://localhost:${PORT:-8000}/ || exit 1
 
+# Expose ports 8000 (HTTP server) and 22 (SSH)
 EXPOSE 8000 22
+
+# Run the startup script
 CMD ["/start"]
